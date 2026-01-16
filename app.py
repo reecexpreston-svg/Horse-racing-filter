@@ -229,6 +229,23 @@ def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'healthy'})
 
+@app.route('/api/test-db', methods=['GET'])
+def test_db():
+    try:
+        races = Race.query.all()
+        return jsonify({
+            'status': 'success',
+            'total_races': len(races),
+            'races': [{
+                'date': str(race.date),
+                'course': race.course,
+                'time': race.race_time,
+                'name': race.race_name
+            } for race in races[:5]]
+        })
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
