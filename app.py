@@ -7,7 +7,7 @@ from models import db, Race, Runner, FormLine
 from course_mapping import get_course_characteristics
 from datetime import datetime
 
-app = Flask(**name**)
+app = Flask(__name__)
 CORS(app)
 
 # Database configuration
