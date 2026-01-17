@@ -29,12 +29,14 @@ db.create_all()
 @app.route(’/api/races’, methods=[‘GET’])
 def get_races():
 “””
-Get races with filtering
-Query params: date (YYYY-MM-DD), course, going, distance, race_class, etc.
+Get races with optional filtering
+Query params: date, course, going, distance, race_class
 “””
-# Get query parameters
 date_str = request.args.get(‘date’)
 course = request.args.get(‘course’)
+going = request.args.get(‘going’)
+distance = request.args.get(‘distance’)
+race_class = request.args.get(‘race_class’)
 
 ```
 # Start with all races
@@ -43,13 +45,22 @@ query = Race.query
 # Apply filters
 if date_str:
     try:
-        race_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-        query = query.filter_by(date=race_date)
+        date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        query = query.filter_by(date=date_obj)
     except ValueError:
         return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
 if course:
     query = query.filter_by(course=course)
+
+if going:
+    query = query.filter_by(going=going)
+    
+if distance:
+    query = query.filter_by(distance=distance)
+    
+if race_class:
+    query = query.filter_by(race_class=race_class)
 
 races = query.all()
 
@@ -107,7 +118,8 @@ max_position = request.args.get('max_position', type=int)
 if max_position:
     query = query.filter(FormLine.position <= max_position)
 
-form_lines = query.order_by(FormLine.race_date.desc()).all()
+# Order by date descending (most recent first)
+form_lines = query.order_by(FormLine.date.desc()).all()
 
 return jsonify({
     'runner': runner.to_dict(include_form=False),
@@ -118,54 +130,81 @@ return jsonify({
 @app.route(’/api/courses’, methods=[‘GET’])
 def get_courses():
 “””
-Get list of all courses with their characteristics
+Get list of all courses
 “””
-# Get unique courses from the database
-courses = db.session.query(Race.course).distinct().all()
-course_list = [course[0] for course in courses]
-
-```
-# Add characteristics
-courses_with_chars = []
-for course_name in course_list:
-    chars = get_course_characteristics(course_name)
-    courses_with_chars.append({
-        'name': course_name,
-        'characteristics': chars
-    })
-
+courses = db.session.query(Race.course).distinct().order_by(Race.course).all()
 return jsonify({
-    'count': len(courses_with_chars),
-    'courses': courses_with_chars
+‘courses’: [course[0] for course in courses]
 })
+
+@app.route(’/api/courses/<course_name>’, methods=[‘GET’])
+def get_course_info(course_name):
+“””
+Get course characteristics
+“””
+characteristics = get_course_characteristics(course_name)
+
 ```
+if characteristics:
+    return jsonify({
+        'course': course_name,
+        'characteristics': characteristics
+    })
+else:
+    return jsonify({
+        'error': 'Course not found'
+    }), 404
+```
+
+@app.route(’/api/goings’, methods=[‘GET’])
+def get_goings():
+“””
+Get list of all going descriptions
+“””
+goings = db.session.query(Race.going).distinct().order_by(Race.going).all()
+return jsonify({
+‘goings’: [going[0] for going in goings if going[0]]
+})
+
+@app.route(’/api/distances’, methods=[‘GET’])
+def get_distances():
+“””
+Get list of all distances
+“””
+distances = db.session.query(Race.distance).distinct().order_by(Race.distance).all()
+return jsonify({
+‘distances’: [distance[0] for distance in distances if distance[0]]
+})
+
+@app.route(’/api/classes’, methods=[‘GET’])
+def get_classes():
+“””
+Get list of all race classes
+“””
+classes = db.session.query(Race.race_class).distinct().order_by(Race.race_class).all()
+return jsonify({
+‘classes’: [cls[0] for cls in classes if cls[0]]
+})
 
 @app.route(’/api/racecards’, methods=[‘GET’])
 def get_racecards():
 “””
-Get race cards for a specific date with all runners
-Query params: date (YYYY-MM-DD), course (optional)
+Get race cards (races with runners) for a specific date
+Query params: date (required)
 “””
 date_str = request.args.get(‘date’)
-course = request.args.get(‘course’)
 
 ```
 if not date_str:
     return jsonify({'error': 'Date parameter is required'}), 400
 
 try:
-    race_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
 except ValueError:
     return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
 
-# Get races
-query = Race.query.filter_by(date=race_date)
-if course:
-    query = query.filter_by(course=course)
+races = Race.query.filter_by(date=date_obj).order_by(Race.race_time).all()
 
-races = query.all()
-
-# Build race cards with runners
 racecards = []
 for race in races:
     runners = Runner.query.filter_by(race_id=race.id).all()
@@ -176,37 +215,8 @@ for race in races:
 
 return jsonify({
     'date': date_str,
-    'course': course,
     'count': len(racecards),
     'racecards': racecards
-})
-```
-
-@app.route(’/api/filter-options’, methods=[‘GET’])
-def get_filter_options():
-“””
-Get available filter options (goings, distances, classes, etc.)
-“””
-# Get unique values from races
-goings = db.session.query(Race.going).distinct().all()
-distances = db.session.query(Race.distance).distinct().all()
-classes = db.session.query(Race.race_class).distinct().all()
-
-```
-# Get unique values from form lines
-form_goings = db.session.query(FormLine.going).distinct().all()
-form_distances = db.session.query(FormLine.distance).distinct().all()
-form_classes = db.session.query(FormLine.race_class).distinct().all()
-
-# Combine and deduplicate
-all_goings = set([g[0] for g in goings if g[0]] + [g[0] for g in form_goings if g[0]])
-all_distances = set([d[0] for d in distances if d[0]] + [d[0] for d in form_distances if d[0]])
-all_classes = set([c[0] for c in classes if c[0]] + [c[0] for c in form_classes if c[0]])
-
-return jsonify({
-    'goings': sorted(list(all_goings)),
-    'distances': sorted(list(all_distances)),
-    'classes': sorted(list(all_classes))
 })
 ```
 
@@ -217,7 +227,7 @@ return jsonify({‘status’: ‘healthy’})
 
 @app.route(’/api/test-db’, methods=[‘GET’])
 def test_db():
-“”“Test database connection and show what races exist”””
+“”“Test database connection and show what races are in the database”””
 try:
 races = Race.query.all()
 return jsonify({
